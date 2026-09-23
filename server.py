@@ -125,9 +125,11 @@ class H(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").lower()
         if host not in (f"localhost:{PORT}", f"127.0.0.1:{PORT}"): return False      # blocks DNS rebinding
         if mutating:
+            # Browsers always attach Origin to cross-site writes, so a localhost Origin proves the request came from the
+            # editor page. Without an Origin (non-browser clients), require the X-EWVE header instead.
             origin = self.headers.get("Origin")
-            if origin and origin not in (f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"): return False
-            if self.headers.get("X-EWVE") != "1": return False                        # custom header forces a CORS preflight we never answer
+            if origin: return origin in (f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}")
+            return self.headers.get("X-EWVE") == "1"
         return True
 
     def send(self, code, body=b"", ctype="application/json"):
@@ -221,7 +223,8 @@ class H(BaseHTTPRequestHandler):
         body = self.body_json()
         with lock:
             now = pr.load()
-            if body.get("rev") != now.get("rev"): return self.send(409, now)
+            # A missing rev only comes from a tab whose earlier save was refused; accept it once rather than lose the edits.
+            if "rev" in body and body.get("rev") != now.get("rev"): return self.send(409, now)
             body["rev"] = now.get("rev", 0) + 1
             tmp = pr.pjson + ".tmp"; json.dump(body, open(tmp, "w"), indent=1); os.replace(tmp, pr.pjson)
         return self.send(200, {"rev": body["rev"]})

@@ -156,7 +156,8 @@ function changed(){dirty=true;$('save').textContent='Saving…';clearTimeout(sav
 async function save(){
   const r=await fetch('/api/project',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(P)});
   if(r.status===409){P=await r.json();dirty=false;$('save').textContent='Updated from disk';toast('Project changed on disk, reloaded');renderAll();return}
-  const j=await r.json();P.rev=j.rev;dirty=false;$('save').textContent='Saved';
+  if(!r.ok){$('save').textContent='NOT SAVED: refresh the page';$('save').style.color='var(--danger)';toast('Save failed ('+r.status+'). Your edit is still here; refresh to reconnect.');return}
+  const j=await r.json();P.rev=j.rev;dirty=false;$('save').textContent='Saved';$('save').style.color='';
 }
 setInterval(async()=>{ if(dirty||!P) return;
   try{const {rev,path}=await (await fetch('/api/rev')).json(); if(window._path&&path!==window._path){location.reload();return} if(rev!==P.rev){await loadProject(true);toast('Picked up changes from disk');$('save').textContent='Saved'}}catch(e){}

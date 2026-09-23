@@ -55,4 +55,4 @@ The open editor polls the server about every 1.5 seconds and reloads when `proje
 ./ewve "/path/to/videos"     # set up or open a folder
 ```
 
-The server listens on http://localhost:5177, or the next free port. Its write endpoints require the header `X-EWVE: 1` and a localhost `Host`. Editing `project.json` on disk needs neither.
+The server listens on http://localhost:5177, or the next free port. Its write endpoints need a localhost `Host`, plus either a localhost `Origin` (the editor page) or the header `X-EWVE: 1` (scripts). Editing `project.json` on disk needs neither.
