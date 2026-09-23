@@ -1,0 +1,13 @@
+#!/bin/zsh
+# EWVE launcher.  ewve "<folder>" [port]
+#   <folder> can be a folder of raw videos (it gets set up), its "EWVE Project" folder, or any folder with a project.json.
+DIR="${0:A:h}"
+F="${1:-.}"; PORT="${2:-5177}"
+[[ -d "$F" ]] || { echo "Not a folder: $F"; exit 1; }
+F="${F:A}"
+if [[ -f "$F/project.json" ]]; then P="$F"
+elif [[ -f "$F/EWVE Project/project.json" ]]; then P="$F/EWVE Project"
+else "$DIR/.venv/bin/python" "$DIR/ingest.py" "$F" || exit 1; P="$F/EWVE Project"; fi
+while lsof -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; do PORT=$((PORT+1)); done
+( sleep 1.5; open "http://localhost:$PORT" ) &
+exec "$DIR/.venv/bin/python" "$DIR/server.py" "$P" "$PORT"
