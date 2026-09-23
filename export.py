@@ -31,13 +31,13 @@ def write_wav(path, x, ch=1):
 
 _level_cache = {}
 def auto_gain(media, clip, work):
-    """dB needed to bring this clip's cleaned speech to -18 LUFS (clamped). Cached per (src,in,out)."""
+    """dB needed to bring this clip's speech to -18 LUFS (clamped). Measured before noise reduction, which would eat quiet speech. Cached per (src,in,out)."""
     key = (clip["src"], round(clip["in"], 3), round(clip["out"], 3))
     if key in _level_cache: return _level_cache[key]
     tmp = os.path.join(work, "lvl.wav")
     run("ffmpeg", "-v", "error", "-y", "-ss", f'{clip["in"]:.4f}', "-to", f'{clip["out"]:.4f}', "-i", os.path.join(media, clip["src"]),
-        "-vn", "-ac", "1", "-ar", str(SR), "-af", "highpass=f=80,afftdn=nf=-25", tmp)
-    g = float(np.clip(-18.0 - lufs(tmp), -12, 24))
+        "-vn", "-ac", "1", "-ar", str(SR), "-af", "highpass=f=80", tmp)
+    g = float(np.clip(-18.0 - lufs(tmp), -12, 40))
     _level_cache[key] = g
     return g
 
@@ -65,7 +65,7 @@ def render(project_dir, music=True, progress=lambda *a: None):
         aw = os.path.join(work, f"a{k:03d}.wav")
         g = auto_gain(media, c, work) + float(c.get("gain_db", 0))
         run("ffmpeg", "-v", "error", "-y", "-ss", f"{a0:.4f}", "-i", os.path.join(media, c["src"]), "-vn", "-ac", "1", "-ar", str(SR),
-            "-af", f"highpass=f=80,afftdn=nf=-25,volume={g:.2f}dB,alimiter=limit=0.89:level=false", "-t", f"{n / fps + 0.1:.4f}", aw)
+            "-af", f"highpass=f=80,volume={g:.2f}dB,afftdn=nf=-25,alimiter=limit=0.89:level=false", "-t", f"{n / fps + 0.1:.4f}", aw)
         a = read_wav(aw)[: n * spf]; a = np.pad(a, (0, n * spf - len(a)))
         if len(a) > 1700: a[:240] *= np.linspace(0, 1, 240); a[-1440:] *= np.linspace(1, 0, 1440)
         voice += [a, np.zeros(nh * spf, np.float32)]

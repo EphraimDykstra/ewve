@@ -10,7 +10,9 @@ THUMBS = os.path.join(PROJ, ".work", "thumbs"); os.makedirs(THUMBS, exist_ok=Tru
 lock = threading.Lock()
 CHUNK = 2 * 1024 * 1024
 job = {"state": "idle", "step": "", "k": 0, "n": 0, "out": "", "error": ""}
-levels = {}  # "src|in|out" -> auto gain dB
+LEVELS = os.path.join(PROJ, ".work", "levels.json")
+try: levels = json.load(open(LEVELS))  # "src|in|out" -> auto gain dB, kept across restarts
+except Exception: levels = {}
 
 
 def load(): return json.load(open(PJSON))
@@ -40,8 +42,9 @@ def level_worker():
                 key = f'{c["src"]}|{c["in"]:.3f}|{c["out"]:.3f}'
                 if key not in levels and c["out"] > c["in"]:
                     levels[key] = export.auto_gain(MEDIA, c, os.path.join(PROJ, ".work"))
+                    json.dump(levels, open(LEVELS, "w"))
         except Exception: traceback.print_exc()
-        threading.Event().wait(2)
+        threading.Event().wait(1)
 
 
 def do_export(music):

@@ -65,7 +65,7 @@ kbd{background:#22252a;border:1px solid var(--line);border-radius:3px;padding:0 
     <span class="name" id="pname">EWVE</span><span class="status" id="save">Loading…</span>
     <span class="sp"></span>
     <button id="undo" title="Undo (⌘Z)">Undo</button><button id="redo" title="Redo (⇧⌘Z)">Redo</button>
-    <span class="status" id="xstat"></span>
+    <span class="status" id="lvl"></span><span class="status" id="xstat"></span>
     <button id="exNo">Export (no music)</button><button class="primary" id="exMu">Export</button>
   </header>
   <div class="main">
@@ -107,7 +107,8 @@ const total=()=>clips().reduce((a,c)=>a+dur(c),0);
 function fmt(t){t=Math.max(0,t);const m=Math.floor(t/60),s=Math.floor(t%60),f=Math.round((t%1)*fps())%fps();return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(f).padStart(2,'0')}`}
 function toast(m){const t=$('toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,1600)}
 function srcDur(src){return (sources.find(s=>s.src===src)||{}).duration||0}
-function lvl(c){const k=`${c.src}|${c.in.toFixed(3)}|${c.out.toFixed(3)}`;return levels[k]??0}
+function lvl(c){const k=`${c.src}|${c.in.toFixed(3)}|${c.out.toFixed(3)}`;if(levels[k]!==undefined)return levels[k];
+  const v=Object.values(levels).sort((a,b)=>a-b);return v.length?v[v.length>>1]:12} // not measured yet: use the typical boost, never 0
 
 // ---------- persistence ----------
 async function loadProject(keepSel){
@@ -126,7 +127,8 @@ async function save(){
 }
 setInterval(async()=>{ if(dirty||!P) return;
   try{const {rev}=await (await fetch('/api/rev')).json(); if(rev!==P.rev){await loadProject(true);toast('Picked up changes from disk');$('save').textContent='Saved'}}catch(e){}
-  try{levels=await (await fetch('/api/levels')).json()}catch(e){}
+  try{levels=await (await fetch('/api/levels')).json();applyGain();const miss=clips().filter(c=>levels[`${c.src}|${c.in.toFixed(3)}|${c.out.toFixed(3)}`]===undefined).length;
+    $('lvl').textContent=miss?`Levelling audio… ${clips().length-miss}/${clips().length}`:''}catch(e){}
 },1500);
 function undo(){if(!hist.length)return;fut.push(JSON.stringify(P));const rev=P.rev;P=JSON.parse(hist.pop());P.rev=rev;changed()}
 function redo(){if(!fut.length)return;hist.push(JSON.stringify(P));const rev=P.rev;P=JSON.parse(fut.pop());P.rev=rev;changed()}
@@ -134,16 +136,20 @@ function redo(){if(!fut.length)return;hist.push(JSON.stringify(P));const rev=P.r
 // ---------- playback ----------
 const vA=$('vA'), vB=$('vB'); let act=vA, idle=vB, curIdx=-1, music=null, actx=null, gains=new Map();
 function audioInit(){ if(actx) return; actx=new AudioContext();
-  for(const v of [vA,vB]){const g=actx.createGain();actx.createMediaElementSource(v).connect(g).connect(actx.destination);gains.set(v,g)}
-  music=new Audio('/media/'+encodeURIComponent(P.tracks.music?.src||'Music bed.wav'));const mg=actx.createGain();actx.createMediaElementSource(music).connect(mg).connect(actx.destination);gains.set(music,mg)}
+  const lim=actx.createDynamicsCompressor();lim.threshold.value=-3;lim.knee.value=0;lim.ratio.value=20;lim.attack.value=0.003;lim.release.value=0.15;lim.connect(actx.destination);
+  for(const v of [vA,vB]){const g=actx.createGain();actx.createMediaElementSource(v).connect(g).connect(lim);gains.set(v,g)}
+  music=new Audio('/media/'+encodeURIComponent(P.tracks.music?.src||'Music bed.wav'));const mg=actx.createGain();actx.createMediaElementSource(music).connect(mg).connect(lim);gains.set(music,mg);applyGain()}
+function applyGain(){const c=mode==='src'?cur():clips()[curIdx];if(c)setGain(act,lvl(c)+(c.gain_db||0))}
 function setGain(v,db){const g=gains.get(v);if(g)g.gain.value=Math.pow(10,db/20)}
 function loadInto(v,src,t){return new Promise(res=>{const url='/media/'+encodeURIComponent(src);
   const go=()=>{v.currentTime=t;const done=()=>{v.removeEventListener('seeked',done);res()};v.addEventListener('seeked',done)};
   if(v.dataset.src!==src){v.dataset.src=src;v.src=url;v.addEventListener('loadedmetadata',go,{once:true})}else go()})}
 function show(v){act=v;idle=v===vA?vB:vA;act.style.visibility='visible';idle.style.visibility='hidden'}
 function idxAt(t){const st=starts();for(let i=clips().length-1;i>=0;i--) if(t>=st[i]-1e-6) return i;return 0}
-async function seekSeq(t){t=Math.min(Math.max(0,t),Math.max(0,total()-fr()));seqT=t;if(!clips().length)return;
-  const i=idxAt(t),c=clips()[i],st=starts()[i];curIdx=i;await loadInto(act,c.src,c.in+(t-st));show(act);setGain(act,lvl(c)+(c.gain_db||0));
+let seekTok=0;
+async function seekSeq(t){t=Math.min(Math.max(0,t),Math.max(0,total()-fr()));seqT=t;if(!clips().length)return;const tok=++seekTok;
+  const i=idxAt(t),c=clips()[i],st=starts()[i];curIdx=i;await loadInto(act,c.src,c.in+(t-st));if(tok!==seekTok)return;show(act);idle.pause();setGain(act,lvl(c)+(c.gain_db||0));
+  if(playing&&mode==='tl'){act.play().catch(()=>{});if(music&&P.tracks.music?.enabled){music.currentTime=t}}
   preloadNext();drawPH()}
 function preloadNext(){const n=clips()[curIdx+1];if(n) loadInto(idle,n.src,n.in)}
 async function play(){audioInit();actx.resume();if(mode==='src'){act.play();playing=true;$('play').textContent='Pause';loop();return}
