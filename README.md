@@ -1,92 +1,94 @@
 # EWVE
 
-Ephraim's Web Video Editor. A small, local, browser-based editor for vertical talking-head cuts: vox pops, supercuts, interview reels. Everything runs on your Mac. Your footage never leaves the folder it lives in.
+**Ephraim's Web Video Editor.** A free, simple video editor that runs in your browser, on your own computer. It's built for short talking-head edits: vox pops, supercuts, interview reels, and clips for LinkedIn, Instagram or TikTok.
 
-It does a few things well:
+Your footage never leaves your machine. There's no account, no upload and no watermark.
 
-- Lines up clips on a video track, with drag-to-reorder and drag-to-trim on the full source.
-- Trims to the frame, by playhead, by number, or by clicking a word in the transcript.
-- Auto-levels every clip to the same loudness, with a per-clip volume slider on top.
-- Adds a music track that ducks under the voices on export.
-- Exports a finished MP4 through ffmpeg, frame-exact and in sync.
+## What it does
 
-The whole edit lives in one file, `project.json`. You can edit it in the browser, and Claude can edit the same file from a terminal. The browser picks up outside changes within about 2 seconds, and a revision counter stops either side from overwriting the other.
+- **Drop in videos** or a whole folder. EWVE makes editable copies and transcribes them.
+- **Line up clips** on a timeline. Drag to reorder, and drag an edge to trim.
+- **Cut on the word.** Click any word in a clip's transcript to jump there. Shift-click sets the in point, and Option-click sets the out point.
+- **Frame for any format.** Choose vertical 9:16, portrait 4:5, square or landscape. Zoom and reposition each clip, so a wide shot works in a vertical video.
+- **Even out the audio.** Every clip is levelled automatically, with a volume slider per clip on top.
+- **Add a music bed** that dips under the voices.
+- **Export an MP4** with frame-accurate cuts, ready to post.
+
+## Works with Claude
+
+The whole edit is one file, `EWVE Project/project.json`. Claude can edit it directly, from Claude Code in a terminal next to your browser, and the editor picks up the change within about 2 seconds. You can also have Claude in Chrome drive the editor itself. See [CLAUDE.md](CLAUDE.md) for the format and the rules an assistant should follow.
+
+Things to ask for:
+
+- "Remove every 'um' at the start of a clip."
+- "Put every answer that mentions friends first."
+- "Tighten every cut to start on the first word."
+- "Lower clip 12 by 3 dB."
 
 ## Requirements
 
-- macOS (uses `avconvert` to tone-map iPhone HDR footage to standard colour)
-- `brew install ffmpeg whisper-cpp`
-- Python 3
+- **macOS** is the main platform. It uses macOS's built-in `avconvert` to convert iPhone HDR footage to standard colour, so it looks right when posted.
+- **Linux and Windows** should work, but they haven't been tested much. Video is copied with ffmpeg instead, and HDR footage is not colour-converted.
+- Python 3.10 or newer, [ffmpeg](https://ffmpeg.org), and, for transcripts, [whisper.cpp](https://github.com/ggml-org/whisper.cpp).
 
-## Setup
+## Install
 
 ```sh
-cd ~/dev/ewve
-python3 -m venv .venv && .venv/bin/pip install numpy
-mkdir -p models && curl -L -o models/ggml-small.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
+git clone https://github.com/EphraimDykstra/ewve.git
+cd ewve
+./setup.sh
+```
+
+`setup.sh` installs ffmpeg and whisper.cpp through Homebrew if they're missing. It then creates a Python environment and downloads the English transcription model, about 470 MB. To skip transcripts, run `SKIP_TRANSCRIPTS=1 ./setup.sh`.
+
+On Windows, install Python, ffmpeg and, optionally, whisper.cpp yourself, then run:
+
+```bat
+python -m venv .venv
+.venv\Scripts\pip install numpy
+.venv\Scripts\python ewve.py
 ```
 
 ## Use
 
 ```sh
-./ewve "/path/to/folder of videos"
+./ewve
 ```
 
-The first run on a folder creates `EWVE Project/` inside it, with converted media, transcripts and a starting `project.json` that has one clip per video. Later runs open that project again. You can also point `ewve` straight at an `EWVE Project` folder or at any folder that has a `project.json`.
+Your browser opens on the Projects screen. Drop videos in, name the project, and click **Create project**. New projects are saved in `~/EWVE Projects` by default. To use another location, set the `EWVE_HOME` environment variable.
 
-Exports go to `EWVE Project/Exports/`.
+You can also point EWVE straight at a folder. A folder of raw videos gets set up in place, and a folder that already has a project opens directly:
+
+```sh
+./ewve "/path/to/videos"
+```
+
+Exports are saved to `EWVE Project/Exports/`.
 
 ### Keys
 
 | Key | Action |
 |---|---|
-| Space | Play / pause |
-| ← → | Step one frame (Shift for 10) |
-| I / O | Trim the selected clip's in / out to the playhead |
+| Space | Play or pause |
+| ← → | Step one frame (Shift steps 10) |
+| I / O | Trim the selected clip's start or end to the playhead |
 | S | Split at the playhead |
 | Delete | Remove the selected clip |
 | ⌘Z / ⇧⌘Z | Undo / redo |
 
-In the transcript, click a word to jump there in the source. Shift-click sets the in point, and Option-click sets the out point. Word times are approximate, so confirm cuts by ear.
+## How it works
 
-## project.json
-
-```json
-{
-  "rev": 12,
-  "name": "My cut",
-  "fps": 30, "width": 1080, "height": 1920,
-  "tracks": {
-    "video": [
-      {"id": "c1", "src": "IMG_3288.mov", "in": 3.5667, "out": 4.8333, "section": "open", "gain_db": 0.0}
-    ],
-    "music": {"src": "Music bed.wav", "enabled": true, "gain_db": 0.0, "generated": true}
-  },
-  "end_hold": 1.0
-}
-```
-
-- `src` is a file in `Media/`, and `in`/`out` are seconds in that file.
-- `section` only colours the clip on the timeline: open, when, because or other.
-- `gain_db` is added on top of automatic levelling.
-- When `generated` is true, the music bed is composed at export time to fit the cut. When it's false, `src` in `Media/` is used.
-- When editing by hand, keep `rev` as it is. The server bumps it.
-
-## Files
-
-| File | What it does |
+| File | Role |
 |---|---|
-| `ewve` | Launcher: sets up the folder if needed, starts the server, opens the browser |
-| `ingest.py` | Folder of videos → `EWVE Project` (convert, transcribe, starting project) |
-| `server.py` | Local HTTP server: UI, media with range requests, project API, thumbnails, export jobs |
-| `export.py` | project.json → MP4 (frame-exact cuts, levelling, ducked music, loudness normalised) |
-| `music.py` | Composes the soft four-chord music bed at any length |
-| `index.html` | The editor UI |
+| `ewve` / `ewve.py` | Launcher. Sets up a folder if needed, starts the server and opens the browser. |
+| `server.py` | Local web server on `localhost` only. Serves the editor, video with seeking, the project API, thumbnails and background jobs. |
+| `ingest.py` | Turns a folder of videos into an `EWVE Project`: converts the video, transcribes it and writes a starting `project.json`. |
+| `export.py` | Renders `project.json` to an MP4 with frame-exact cuts, levelled voices, framing, the ducked music bed and loudness normalisation. |
+| `music.py` | Composes a soft, royalty-free music bed at any length. |
+| `index.html` | The editor, as a single page with no build step. |
 
-## Ideas for later
+The server only answers the editor's own page. It rejects requests from other websites and from non-local addresses, so a site you visit can't send commands to your EWVE.
 
-- Claude inside the editor: "remove the ums", "find everyone who says X", "tighten every cut".
-- Captions burned in from the transcripts.
-- Title and text overlays.
-- A second audio track for voice-over.
+## License
+
+MIT. Use it, change it, share it.

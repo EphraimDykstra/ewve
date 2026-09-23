@@ -1,9 +1,9 @@
 """Render a project.json to a finished vertical MP4: frame-exact cuts, auto-levelled voices, optional ducked music bed."""
-import json, os, re, subprocess, wave, time
+import json, os, re, subprocess, sys, wave, time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PY = os.path.join(HERE, ".venv", "bin", "python")
+PY = sys.executable  # works in any venv, on any OS
 SR = 48000
 
 
@@ -27,6 +27,16 @@ def write_wav(path, x, ch=1):
     with wave.open(path, "wb") as w:
         w.setnchannels(ch); w.setsampwidth(2); w.setframerate(SR)
         w.writeframes((np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes())
+
+
+def frame_filter(clip, W, H):
+    """Cover-fill the W x H frame, then apply the clip's crop: zoom >= 1, x/y in -1..1 (-1 = left/top edge).
+    The editor preview uses the same maths as a CSS transform, so what you frame is what exports."""
+    cr = clip.get("crop") or {}
+    z = max(1.0, float(cr.get("zoom", 1))); x = max(-1.0, min(1.0, float(cr.get("x", 0)))); y = max(-1.0, min(1.0, float(cr.get("y", 0))))
+    return (f"scale={W}:{H}:force_original_aspect_ratio=increase,"
+            f"scale=trunc(iw*{z:.4f}/2)*2:trunc(ih*{z:.4f}/2)*2,"
+            f"crop={W}:{H}:(iw-{W})/2*(1+({x:.4f})):(ih-{H})/2*(1+({y:.4f}))")
 
 
 _level_cache = {}
@@ -56,7 +66,7 @@ def render(project_dir, music=True, progress=lambda *a: None):
         n = round((c["out"] - c["in"]) * fps); a0 = round(c["in"] * fps) / fps
         nh = round(end_hold * fps) if k == len(clips) - 1 else 0
         v = os.path.join(work, f"v{k:03d}.mp4")
-        vf = f"fps={fps},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"
+        vf = f"fps={fps}," + frame_filter(c, W, H) + ",setsar=1"
         if nh: vf += f",tpad=stop_mode=clone:stop_duration={nh / fps:.4f}"
         run("ffmpeg", "-v", "error", "-y", "-ss", f"{a0:.4f}", "-i", os.path.join(media, c["src"]), "-an", "-vf", vf,
             "-frames:v", str(n + nh), "-c:v", "libx264", "-crf", "17", "-preset", "medium", "-pix_fmt", "yuv420p",

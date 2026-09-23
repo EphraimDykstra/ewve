@@ -56,15 +56,27 @@ input[type=range]{width:160px}
 .playhead{position:absolute;top:0;bottom:0;width:2px;background:#ff4d4d;z-index:5;pointer-events:none}
 .dropmark{position:absolute;top:22px;bottom:0;width:3px;background:var(--acc);z-index:6;display:none}
 .toast{position:fixed;bottom:264px;left:50%;transform:translateX(-50%);background:#2a2e35;padding:6px 14px;border-radius:14px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none}
+#home{position:fixed;inset:0;background:var(--bg);z-index:50;overflow:auto;display:none}
+#home .wrap{max-width:880px;margin:0 auto;padding:48px 24px}
+#home h1{font-size:34px;margin:0 0 4px;letter-spacing:-.02em}#home .sub{color:var(--dim);margin-bottom:28px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:760px){.cards{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.dz{border:1.5px dashed #3a3f46;border-radius:10px;padding:26px 14px;text-align:center;color:var(--dim);cursor:pointer;margin:10px 0}
+.dz.over{border-color:var(--acc);color:var(--text);background:rgba(79,140,255,.08)}
+.flist{max-height:180px;overflow:auto;font-size:12px}.flist div{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid #1d2024}
+.pbar{height:6px;background:#0f1113;border-radius:4px;overflow:hidden;margin:8px 0}.pbar i{display:block;height:100%;background:var(--acc);width:0}
+.proj{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.proj:hover{border-color:var(--line);background:#1a1d21}.proj .d{color:var(--dim);font-size:11px}
+.txt{width:100%;background:#0f1113;border:1px solid var(--line);border-radius:6px;padding:7px 9px}
 kbd{background:#22252a;border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:10px}
 </style>
 </head>
 <body>
 <div class="app">
   <header>
-    <span class="name" id="pname">EWVE</span><span class="status" id="save">Loading…</span>
+    <button id="homeBtn" title="Projects">☰ Projects</button><span class="name" id="pname">EWVE</span><span class="status" id="save">Loading…</span>
     <span class="sp"></span>
-    <button id="undo" title="Undo (⌘Z)">Undo</button><button id="redo" title="Redo (⇧⌘Z)">Redo</button>
+    <select id="fmt" title="Output format"><option value="1080x1920">Vertical 9:16</option><option value="1080x1350">Portrait 4:5</option><option value="1080x1080">Square 1:1</option><option value="1920x1080">Landscape 16:9</option></select><button id="undo" title="Undo (⌘Z)">Undo</button><button id="redo" title="Redo (⇧⌘Z)">Redo</button>
     <span class="status" id="lvl"></span><span class="status" id="xstat"></span>
     <button id="exNo">Export (no music)</button><button class="primary" id="exMu">Export</button>
   </header>
@@ -92,10 +104,31 @@ kbd{background:#22252a;border:1px solid var(--line);border-radius:3px;padding:0 
     </div></div>
   </div>
 </div>
+<div id="home"><div class="wrap">
+  <h1>EWVE</h1><div class="sub">A simple video editor that runs on your computer. Your footage never leaves this machine.</div>
+  <div class="cards">
+    <div class="card"><h3>New project</h3>
+      <input class="txt" id="npName" placeholder="Project name">
+      <div class="dz" id="dz">Drop videos or a folder here<br><span style="font-size:11px">or click to choose files · .mov .mp4 .m4v</span></div>
+      <input type="file" id="pick" multiple accept=".mov,.mp4,.m4v,video/*" style="display:none">
+      <div class="flist" id="flist"></div><div class="pbar"><i id="pb"></i></div>
+      <div class="row"><button class="primary" id="create" disabled>Create project</button><span class="status" id="nstat"></span></div>
+      <div class="hint">Videos are copied into your EWVE Projects folder, converted to editable 1080p copies and transcribed. Nothing is uploaded to the internet.</div>
+    </div>
+    <div class="card"><h3>Recent projects</h3><div id="plist"><div class="hint">None yet.</div></div>
+      <h3 style="margin-top:16px">Open a folder</h3>
+      <div class="row"><input class="txt" id="opath" placeholder="/path/to/folder or EWVE Project" style="flex:1"><button id="obtn">Open</button></div>
+      <div class="hint">A folder with an EWVE project opens directly. Use the terminal launcher to set up a folder of raw videos in place.</div>
+    </div>
+  </div>
+</div></div>
 <div class="toast" id="toast"></div>
 <script>
 const $=id=>document.getElementById(id);
-const SEC_COL={open:'var(--open)',when:'var(--when)',because:'var(--because)',other:'var(--other)'};
+{const _f=window.fetch.bind(window);window.fetch=(u,o={})=>{if(o.method&&o.method!=='GET')o.headers={...(o.headers||{}),'X-EWVE':'1'};return _f(u,o)}} // server rejects writes without it
+const TAG_FIXED={open:'var(--open)',when:'var(--when)',because:'var(--because)'};
+const PALETTE=['#6c8cff','#3fbf7f','#e0a23a','#e0607a','#4fc3d9','#b98cf0','#c0c86a'];
+function tagColor(t){if(!t||t==='other')return 'var(--other)';if(TAG_FIXED[t])return TAG_FIXED[t];let h=0;for(const ch of t)h=(h*31+ch.charCodeAt(0))>>>0;return PALETTE[h%PALETTE.length]}
 let P=null, sources=[], levels={}, sel=null, mode='tl', pps=34, playing=false, seqT=0;
 let hist=[], fut=[], saveTimer=null, dirty=false, transcripts={};
 const fps=()=>P?.fps||30, fr=()=>1/fps();
@@ -126,7 +159,7 @@ async function save(){
   const j=await r.json();P.rev=j.rev;dirty=false;$('save').textContent='Saved';
 }
 setInterval(async()=>{ if(dirty||!P) return;
-  try{const {rev}=await (await fetch('/api/rev')).json(); if(rev!==P.rev){await loadProject(true);toast('Picked up changes from disk');$('save').textContent='Saved'}}catch(e){}
+  try{const {rev,path}=await (await fetch('/api/rev')).json(); if(window._path&&path!==window._path){location.reload();return} if(rev!==P.rev){await loadProject(true);toast('Picked up changes from disk');$('save').textContent='Saved'}}catch(e){}
   try{levels=await (await fetch('/api/levels')).json();applyGain();const miss=clips().filter(c=>levels[`${c.src}|${c.in.toFixed(3)}|${c.out.toFixed(3)}`]===undefined).length;
     $('lvl').textContent=miss?`Levelling audio… ${clips().length-miss}/${clips().length}`:''}catch(e){}
 },1500);
@@ -144,11 +177,17 @@ function setGain(v,db){const g=gains.get(v);if(g)g.gain.value=Math.pow(10,db/20)
 function loadInto(v,src,t){return new Promise(res=>{const url='/media/'+encodeURIComponent(src);
   const go=()=>{v.currentTime=t;const done=()=>{v.removeEventListener('seeked',done);res()};v.addEventListener('seeked',done)};
   if(v.dataset.src!==src){v.dataset.src=src;v.src=url;v.addEventListener('loadedmetadata',go,{once:true})}else go()})}
+function applyFrame(v,c){ // mirrors export.frame_filter: cover-fill, zoom about the centre, then shift within the overflow
+  if(!v.videoWidth)return;const cr=c?.crop||{},box=$('screen').getBoundingClientRect(),Wb=box.width,Hb=box.height;
+  const s=Math.max(Wb/v.videoWidth,Hb/v.videoHeight),cw=v.videoWidth*s,ch=v.videoHeight*s,z=Math.max(1,cr.zoom||1);
+  Object.assign(v.style,{objectFit:'fill',width:cw+'px',height:ch+'px',left:(Wb-cw)/2+'px',top:(Hb-ch)/2+'px',right:'auto',bottom:'auto'});
+  const ex=cw*z-Wb,ey=ch*z-Hb;v.style.transform=`translate(${-(ex/2)*(cr.x||0)}px,${-(ey/2)*(cr.y||0)}px) scale(${z})`}
+addEventListener('resize',()=>{if(P&&clips().length)applyFrame(act,mode==='src'?cur():clips()[curIdx])});
 function show(v){act=v;idle=v===vA?vB:vA;act.style.visibility='visible';idle.style.visibility='hidden'}
 function idxAt(t){const st=starts();for(let i=clips().length-1;i>=0;i--) if(t>=st[i]-1e-6) return i;return 0}
 let seekTok=0;
 async function seekSeq(t){t=Math.min(Math.max(0,t),Math.max(0,total()-fr()));seqT=t;if(!clips().length)return;const tok=++seekTok;
-  const i=idxAt(t),c=clips()[i],st=starts()[i];curIdx=i;await loadInto(act,c.src,c.in+(t-st));if(tok!==seekTok)return;show(act);idle.pause();setGain(act,lvl(c)+(c.gain_db||0));
+  const i=idxAt(t),c=clips()[i],st=starts()[i];curIdx=i;await loadInto(act,c.src,c.in+(t-st));if(tok!==seekTok)return;show(act);applyFrame(act,c);idle.pause();setGain(act,lvl(c)+(c.gain_db||0));
   if(playing&&mode==='tl'){act.play().catch(()=>{});if(music&&P.tracks.music?.enabled){music.currentTime=t}}
   preloadNext();drawPH()}
 function preloadNext(){const n=clips()[curIdx+1];if(n) loadInto(idle,n.src,n.in)}
@@ -162,7 +201,7 @@ function loop(){if(!playing)return;
     const st=starts()[curIdx];seqT=st+(act.currentTime-c.in);
     if(act.currentTime>=c.out-0.5*fr()){ if(curIdx+1>=clips().length){pause();seqT=total();drawPH();return}
       curIdx++;const n=clips()[curIdx];const nxt=idle;
-      if(nxt.dataset.src===n.src&&Math.abs(nxt.currentTime-n.in)<0.05){show(nxt);setGain(nxt,lvl(n)+(n.gain_db||0));nxt.play();idle.pause();preloadNext()}
+      if(nxt.dataset.src===n.src&&Math.abs(nxt.currentTime-n.in)<0.05){show(nxt);applyFrame(nxt,n);setGain(nxt,lvl(n)+(n.gain_db||0));nxt.play();idle.pause();preloadNext()}
       else{seekSeq(starts()[curIdx]).then(()=>act.play())}
       if(clips()[curIdx].id!==sel){sel=clips()[curIdx].id;renderInsp();renderTl()}}
   }else{const c=cur();if(c) drawStrip(c)}
@@ -170,7 +209,7 @@ function loop(){if(!playing)return;
 function cur(){return clips().find(c=>c.id===sel)}
 function playhead(){return mode==='src'?act.currentTime:seqT}
 async function setMode(m){pause();mode=m;$('mTl').classList.toggle('on',m==='tl');$('mSrc').classList.toggle('on',m==='src');$('badge').textContent=m==='tl'?'Timeline':'Source: '+(cur()?.src||'');
-  if(m==='src'){const c=cur();if(c){await loadInto(act,c.src,c.in);show(act);setGain(act,lvl(c)+(c.gain_db||0))}}else await seekSeq(seqT);renderInsp();drawPH()}
+  if(m==='src'){const c=cur();if(c){await loadInto(act,c.src,c.in);show(act);applyFrame(act,c);setGain(act,lvl(c)+(c.gain_db||0))}}else await seekSeq(seqT);renderInsp();drawPH()}
 function drawPH(){const t=mode==='tl'?seqT:null;$('ph').style.display=t===null?'none':'block';if(t!==null)$('ph').style.left=(t*pps)+'px';
   $('tc').textContent=mode==='tl'?`${fmt(seqT)} / ${fmt(total())}`:`src ${fmt(act.currentTime)} / ${fmt(srcDur(cur()?.src))}`}
 
@@ -195,7 +234,7 @@ function renderBin(){ if($('bin').childElementCount===sources.length) return;
 function renderTl(){const tv=$('tv'),st=starts(),T=total();[...tv.querySelectorAll('.clip')].forEach(e=>e.remove());
   $('tli').style.width=Math.max($('tls').clientWidth,(T+4)*pps)+'px';$('count').textContent=`${clips().length} clips · ${fmt(T)}`;
   clips().forEach((c,i)=>{const d=document.createElement('div');d.className='clip'+(c.id===sel?' sel':'');d.style.left=(st[i]*pps)+'px';d.style.width=Math.max(4,dur(c)*pps-2)+'px';
-    d.innerHTML=`<div class="bar" style="background:${SEC_COL[c.section]||SEC_COL.other}"></div><div class="th" style="background-image:url('/api/thumb?src=${encodeURIComponent(c.src)}&t=${(c.in+0.1).toFixed(2)}')"></div><div class="lab">${i+1} · ${c.src.replace(/\.\w+$/,'')}</div><div class="edge l"></div><div class="edge r"></div>`;
+    d.innerHTML=`<div class="bar" style="background:${tagColor(c.section)}"></div><div class="th" style="background-image:url('/api/thumb?src=${encodeURIComponent(c.src)}&t=${(c.in+0.1).toFixed(2)}')"></div><div class="lab">${i+1} · ${c.src.replace(/\.\w+$/,'')}</div><div class="edge l"></div><div class="edge r"></div>`;
     d.onpointerdown=e=>clipDown(e,c,i,d);tv.appendChild(d)});
   const tm=$('tm');tm.querySelector('.mclip')?.remove();const m=P.tracks.music;if(m){const d=document.createElement('div');d.className='mclip'+(m.enabled?'':' off');d.style.left='0';d.style.width=(T*pps)+'px';
     d.textContent=`Music bed ${m.enabled?'':'(off) '}· ${(m.gain_db||0)>=0?'+':''}${(m.gain_db||0).toFixed(1)} dB`;d.onclick=()=>{sel='__music';renderInsp();renderTl()};if(sel==='__music')d.style.outline='2px solid #fff';tm.appendChild(d)}
@@ -227,19 +266,28 @@ async function renderInsp(){const box=$('insp');
     $('mg').onchange=e=>{commit();m.gain_db=+e.target.value;changed()};return}
   const c=cur();if(!c){box.innerHTML='<h3>No clip selected</h3>';return}const i=clips().indexOf(c);
   box.innerHTML=`<h3>Clip ${i+1} of ${clips().length}</h3><div style="font-weight:600;margin-bottom:6px">${c.src}</div>
-  <div class="row"><label>Section</label><select id="sec">${['open','when','because','other'].map(s=>`<option ${c.section===s?'selected':''}>${s}</option>`).join('')}</select></div>
+  <div class="row"><label>Tag</label><input class="num" id="sec" style="width:150px" list="tags" value="${(c.section||'').replace(/"/g,'&quot;')}" placeholder="optional label"><datalist id="tags">${[...new Set(clips().map(x=>x.section).filter(Boolean))].map(t=>`<option value="${t}">`).join('')}</datalist></div>
   <div class="row"><label>In</label><input class="num" id="in" value="${c.in.toFixed(3)}"><button class="sm" data-a="in:-0.1">−.1</button><button class="sm" data-a="in:-f">−1f</button><button class="sm" data-a="in:f">+1f</button><button class="sm" data-a="in:0.1">+.1</button></div>
   <div class="row"><label>Out</label><input class="num" id="out" value="${c.out.toFixed(3)}"><button class="sm" data-a="out:-0.1">−.1</button><button class="sm" data-a="out:-f">−1f</button><button class="sm" data-a="out:f">+1f</button><button class="sm" data-a="out:0.1">+.1</button></div>
   <div class="row"><label>Length</label><span>${fmt(dur(c))}</span></div>
   <div class="strip" id="strip"><div class="sel" id="ssel"></div><div class="ph" id="sph"></div></div>
   <div class="row"><button class="sm" id="pi">Set in = playhead <kbd>I</kbd></button><button class="sm" id="po">Set out = playhead <kbd>O</kbd></button></div>
   <div class="row"><button class="sm" id="pc">Play clip</button><button class="sm" id="sp">Split <kbd>S</kbd></button><button class="sm" id="du">Duplicate</button><button class="sm" id="de" style="color:var(--danger)">Delete</button></div>
+  <h3 style="margin-top:14px">Frame</h3>
+  ${['zoom','x','y'].map(k=>{const v=(c.crop||{zoom:1,x:0,y:0})[k];return `<div class="row"><label>${k==='zoom'?'Zoom':k==='x'?'Left/right':'Up/down'}</label><input type="range" id="f_${k}" min="${k==='zoom'?1:-1}" max="${k==='zoom'?4:1}" step="0.01" value="${v}"><span id="fv_${k}">${(+v).toFixed(2)}</span></div>`}).join('')}
+  <div class="row"><button class="sm" id="f_reset">Reset frame</button><span class="hint" style="margin:0">Reframe wide shots for vertical. What you see is what exports.</span></div>
   <h3 style="margin-top:14px">Volume</h3>
   <div class="row"><input type="range" id="g" min="-12" max="12" step="0.5" value="${c.gain_db||0}"><span id="gv">${(c.gain_db||0)>=0?'+':''}${(c.gain_db||0).toFixed(1)} dB</span></div>
   <div class="hint">Every clip is auto-levelled to match the others (${lvl(c)>=0?'+':''}${lvl(c).toFixed(1)} dB here). This slider adds on top.</div>
   <h3 style="margin-top:14px">Transcript</h3><div class="words" id="words">Loading…</div>
   <div class="hint">Click a word to jump there in the source. <kbd>⇧</kbd>click sets In, <kbd>⌥</kbd>click sets Out. Word times are approximate, so check by ear.</div>`;
-  $('sec').onchange=e=>{commit();c.section=e.target.value;changed()};
+  $('sec').onchange=e=>{commit();c.section=e.target.value.trim();changed()};
+  const cr=()=>c.crop||{zoom:1,x:0,y:0};
+  let before=null; // undo snapshot taken when a frame drag starts, before anything moves
+  for(const k of ['zoom','x','y']){const el=$('f_'+k);el.onpointerdown=el.onkeydown=()=>{before??=JSON.stringify(P)};
+    el.oninput=e=>{before??=JSON.stringify(P);c.crop={...cr(),[k]:+e.target.value};$('fv_'+k).textContent=(+e.target.value).toFixed(2);applyFrame(act,c)};
+    el.onchange=()=>{if(before){hist.push(before);fut=[];before=null}changed()}}
+  $('f_reset').onclick=()=>{commit();delete c.crop;changed();applyFrame(act,c)};
   $('in').onchange=e=>setIn(c,+e.target.value);$('out').onchange=e=>setOut(c,+e.target.value);
   box.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const [w,v]=b.dataset.a.split(':');const d=v==='f'?fr():v==='-f'?-fr():+v;w==='in'?setIn(c,c.in+d):setOut(c,c.out+d)});
   $('pi').onclick=()=>trimToPlayhead('in');$('po').onclick=()=>trimToPlayhead('out');
@@ -268,7 +316,10 @@ $('play').onclick=()=>playing?pause():play();
 $('prev').onclick=()=>{pause();if(mode==='tl'){const i=idxAt(seqT);const st=starts();seekSeq(seqT-st[i]>0.3?st[i]:st[Math.max(0,i-1)])}};
 $('next').onclick=()=>{pause();if(mode==='tl'){const i=idxAt(seqT);seekSeq(starts()[Math.min(clips().length-1,i+1)])}};
 $('mTl').onclick=()=>setMode('tl');$('mSrc').onclick=()=>setMode('src');
-$('undo').onclick=undo;$('redo').onclick=redo;
+$('undo').onclick=undo;
+function applyFormat(){const W=P.width||1080,H=P.height||1920;$('screen').style.aspectRatio=`${W}/${H}`;$('fmt').value=`${W}x${H}`;if(![...$('fmt').options].some(o=>o.value===$('fmt').value)){const o=new Option(`${W}×${H}`,`${W}x${H}`);$('fmt').add(o);$('fmt').value=o.value}}
+$('fmt').onchange=e=>{const [W,H]=e.target.value.split('x').map(Number);commit();P.width=W;P.height=H;changed();applyFormat();setTimeout(()=>applyFrame(act,mode==='src'?cur():clips()[curIdx]),50)};
+$('homeBtn').onclick=()=>{pause();showHome()};$('redo').onclick=redo;
 $('zoom').oninput=e=>{pps=+e.target.value;renderTl()};
 addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
   if(e.code==='Space'){e.preventDefault();playing?pause():play()}
@@ -277,7 +328,36 @@ addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.targe
   else if(e.key==='s'||e.key==='S'){if(!e.metaKey)split()}
   else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();del()}
   else if(e.metaKey&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}});
-(async()=>{sources=await (await fetch('/api/sources')).json();await loadProject();$('save').textContent='Saved';await seekSeq(0);pollX();
+async function startEditor(){const h=await (await fetch('/api/home')).json();window._path=h.current;
+  sources=await (await fetch('/api/sources')).json();await loadProject();applyFormat();$('save').textContent='Saved';$('home').style.display='none';await seekSeq(0);pollX()}
+async function showHome(){const h=await (await fetch('/api/home')).json();$('home').style.display='block';
+  const pl=$('plist');pl.innerHTML=h.projects.length?'':'<div class="hint">None yet.</div>';
+  for(const p of h.projects){const d=document.createElement('div');d.className='proj';d.innerHTML=`<div><div>${p.name}</div><div class="d">${p.clips} clips · ${p.path}</div></div><div class="d">${new Date(p.modified*1000).toLocaleDateString()}</div>`;
+    d.onclick=()=>openPath(p.path);pl.appendChild(d)}}
+async function openPath(path){const r=await fetch('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+  const j=await r.json();if(!r.ok){toast(j.error||'Could not open');return}location.reload()}
+$('obtn').onclick=()=>$('opath').value.trim()&&openPath($('opath').value.trim());
+// ---- new project: drop files or a folder, upload to this machine's EWVE Projects folder, then set up
+let files=[];const VID=/\.(mov|mp4|m4v)$/i;
+function listFiles(){$('flist').innerHTML=files.map(f=>`<div><span>${f.name}</span><span class="d">${(f.size/1e6).toFixed(0)} MB</span></div>`).join('');$('create').disabled=!files.length}
+async function walk(entry,out){if(entry.isFile){await new Promise(r=>entry.file(f=>{if(VID.test(f.name))out.push(f);r()},r))}
+  else if(entry.isDirectory){const rd=entry.createReader();let batch;do{batch=await new Promise(r=>rd.readEntries(r,()=>r([])));for(const e of batch)await walk(e,out)}while(batch.length)}}
+const dz=$('dz');dz.onclick=()=>$('pick').click();$('pick').onchange=e=>{files.push(...[...e.target.files].filter(f=>VID.test(f.name)));listFiles()};
+dz.ondragover=e=>{e.preventDefault();dz.classList.add('over')};dz.ondragleave=()=>dz.classList.remove('over');
+dz.ondrop=async e=>{e.preventDefault();dz.classList.remove('over');const out=[];const items=[...e.dataTransfer.items].map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+  if(items.length){for(const it of items)await walk(it,out)}else out.push(...[...e.dataTransfer.files].filter(f=>VID.test(f.name)));
+  if(!$('npName').value&&items[0]?.isDirectory)$('npName').value=items[0].name;files.push(...out);listFiles()};
+function put(url,file,onp){return new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open('PUT',url);x.setRequestHeader('X-EWVE','1');
+  x.upload.onprogress=e=>onp(e.loaded);x.onload=()=>x.status===200?res():rej(new Error(x.responseText));x.onerror=()=>rej(new Error('upload failed'));x.send(file)})}
+$('create').onclick=async()=>{const name=$('npName').value.trim()||('Project '+new Date().toISOString().slice(0,10));$('create').disabled=true;
+  const tot=files.reduce((a,f)=>a+f.size,0);let done=0;
+  try{for(const f of files){$('nstat').textContent='Copying '+f.name;await put(`/api/upload?project=${encodeURIComponent(name)}&file=${encodeURIComponent(f.name)}`,f,l=>{$('pb').style.width=((done+l)/tot*100)+'%'});done+=f.size}
+    const r=await fetch('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:name})});if(!r.ok)throw new Error((await r.json()).error);
+    for(;;){await new Promise(z=>setTimeout(z,800));const s=await (await fetch('/api/ingest')).json();
+      $('nstat').textContent=s.state==='running'?`${s.msg} (${s.k}/${s.n})`:s.state;$('pb').style.width=(s.n?s.k/s.n*100:0)+'%';
+      if(s.state==='error')throw new Error(s.error);if(s.state==='done'){await openPath(s.project);return}}}
+  catch(err){$('nstat').textContent='Failed: '+err.message;$('create').disabled=false}};
+(async()=>{const h=await (await fetch('/api/home')).json();if(!h.current){showHome();return}await startEditor();
   if(location.search.includes('selftest')){ // headless check: load, seek, play across a cut
     const r={first:[act.dataset.src,act.readyState,+act.currentTime.toFixed(3)],expect:[clips()[0].src,clips()[0].in]};
     vA.muted=vB.muted=true;await seekSeq(starts()[1]-0.3);r.before=[curIdx,act.dataset.src,+act.currentTime.toFixed(3)];
